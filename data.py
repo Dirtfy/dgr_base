@@ -1,12 +1,18 @@
+import os
+
 import copy
 import math
 
 from collections import defaultdict
 
+
 import torch
 from torchvision import datasets, transforms
-from PIL import ImageOps
-from torch.utils.data import ConcatDataset, Subset
+from PIL import ImageOps, Image
+from torch.utils.data import ConcatDataset, Subset, Dataset
+
+from torchvision.transforms import ToPILImage, ToTensor
+from PIL import Image
 
 from tqdm import tqdm
 
@@ -25,20 +31,55 @@ def _colorize_grayscale_image(image):
     return ImageOps.colorize(image, (0, 0, 0), (255, 255, 255))
 
 
-def get_dataset(name, train=True, permutation=None, capacity=None):
+def get_dataset(name, train=True, permutation=None):
     dataset = (TRAIN_DATASETS[name] if train else TEST_DATASETS[name])()
     dataset.transform = transforms.Compose([
         dataset.transform,
         transforms.Lambda(lambda x: _permutate_image_pixels(x, permutation)),
     ])
 
-    if capacity is not None and len(dataset) < capacity:
-        return ConcatDataset([
-            copy.deepcopy(dataset) for _ in
-            range(math.ceil(capacity / len(dataset)))
-        ])
-    else:
-        return dataset
+    return dataset
+
+def files_in_directory(directory_path):
+    # 폴더 내 모든 파일과 디렉토리 가져오기
+    all_items = os.listdir(directory_path)
+    # 파일만 필터링
+    files = [f for f in all_items if os.path.isfile(os.path.join(directory_path, f))]
+    return files
+
+def tensorToPIL(tensor: torch.Tensor) -> Image:
+    tensor = tensor.clone()
+    tensor_min = tensor.min()
+    tensor_max = tensor.max()
+    tensor = (tensor - tensor_min) / (tensor_max - tensor_min)  # 정규화
+
+    return ToPILImage()(tensor)
+
+def save_as_image(tensor, file_path):
+    image = tensorToPIL(tensor)
+    image.save(file_path)
+        
+class ImageFolderDataset(Dataset):
+    def __init__(self, folder_path):
+        self.folder_path = folder_path
+        self.image_paths = files_in_directory(folder_path)
+
+        self.transform = ToTensor()
+
+    def __len__(self):
+         return len(self.image_paths)
+    
+    def get_label_from_image_path(self, image_path: str):
+        name, extensoin = os.path.splitext(os.path.basename(image_path))
+        return int(name.split('_')[-1])
+    
+    def __getitem__(self, index):
+        # 이미지 로드
+        img_path = os.path.join(self.folder_path, self.image_paths[index])
+        image = self.transform(Image.open(img_path))
+        label = torch.tensor([self.get_label_from_image_path(img_path)], dtype=torch.long)
+        
+        return image, label
     
 def split_by_label(dataset):
         """
@@ -47,13 +88,13 @@ def split_by_label(dataset):
 
         # 라벨별 인덱스 수집
         label_to_indices = defaultdict(list)
-        for i, (_, label) in tqdm(enumerate(dataset), desc="Indexing by label"):
+        for i, (_, label) in tqdm(enumerate(dataset), desc="Splitting Dataset by label"):
             label_to_indices[label].append(i)
 
         # Subset 생성
         splited_dataset = {
             label: Subset(dataset, indices) 
-            for label, indices in tqdm(label_to_indices.items(), desc="Creating Subsets")
+            for label, indices in label_to_indices.items()
         }
 
         return splited_dataset

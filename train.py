@@ -7,10 +7,12 @@ import visual
 
 
 def train(scholar, train_datasets, test_datasets, replay_mode, use_gan,
+          label_schedule_list=None, 
+          generate_ratio=0.5,
           generator_lambda=10.,
           generator_c_updates_per_g_update=5,
-          generator_iterations=2000,
-          solver_iterations=1000,
+          generator_epochs=100,
+          solver_epochs=50,
           importance_of_new_task=.5,
           batch_size=32,
           test_size=1024,
@@ -79,7 +81,7 @@ def train(scholar, train_datasets, test_datasets, replay_mode, use_gan,
             sample_size=sample_size,
             current_task=task,
             total_tasks=len(train_datasets),
-            total_iterations=generator_iterations,
+            total_epochs=generator_epochs,
             batch_size=batch_size,
             replay_mode=replay_mode,
             env=scholar.name,
@@ -89,7 +91,7 @@ def train(scholar, train_datasets, test_datasets, replay_mode, use_gan,
             eval_log_interval=eval_log_interval,
             current_task=task,
             total_tasks=len(train_datasets),
-            total_iterations=solver_iterations,
+            total_epochs=solver_epochs,
             batch_size=batch_size,
             test_size=test_size,
             test_datasets=test_datasets,
@@ -104,11 +106,13 @@ def train(scholar, train_datasets, test_datasets, replay_mode, use_gan,
             train_dataset,
             scholar=previous_scholar,
             previous_datasets=previous_datasets,
+            generate_folder_path=os.path.join(".", "sample", "train", f"{scholar.name}", f"task_{task}"),
+            generate_ratio=generate_ratio,
             importance_of_new_task=importance_of_new_task,
             batch_size=batch_size,
-            generator_iterations=generator_iterations,
+            generator_epochs=generator_epochs,
             generator_training_callbacks=generator_training_callbacks,
-            solver_iterations=solver_iterations,
+            solver_epochs=solver_epochs,
             solver_training_callbacks=solver_training_callbacks,
             collate_fn=collate_fn,
         )
@@ -121,6 +125,10 @@ def train(scholar, train_datasets, test_datasets, replay_mode, use_gan,
             train_datasets[:task] if replay_mode == 'exact-replay' else
             None
         )
+
+        if label_schedule_list is not None:
+            print(f"label pool extend task_{task} label {label_schedule_list[task-1]}")
+            previous_scholar.generator.label_pool.extend(label_schedule_list[task-1])
 
     # save the model after the experiment.
     print()
@@ -137,17 +145,17 @@ def _generator_training_callback(
         sample_dir,
         current_task,
         total_tasks,
-        total_iterations,
+        total_epochs,
         batch_size,
         sample_size,
         replay_mode,
         env):
 
-    def cb(generator, progress, batch_index, result):
-        iteration = (current_task-1)*total_iterations + batch_index
+    def cb(generator, progress, epoch, iteration, total_iter, result):
         progress.set_description((
             '<Training Generator> '
             'task: {task}/{tasks} | '
+            'epoch: {epoch}/{epochs} | '
             'progress: [{trained}/{total}] ({percentage:.0f}%) | '
             'loss => '
             'g: {g_loss:.4} / '
@@ -155,37 +163,39 @@ def _generator_training_callback(
         ).format(
             task=current_task,
             tasks=total_tasks,
-            trained=batch_size * batch_index,
-            total=batch_size * total_iterations,
-            percentage=(100.*batch_index/total_iterations),
+            epoch=epoch,
+            epochs=total_epochs,
+            trained=batch_size * iteration,
+            total=batch_size * total_iter,
+            percentage=(100.*iteration/total_iter),
             g_loss=result['g_loss'],
             w_dist=-result['c_loss'],
         ))
 
-        # log the losses of the generator.
-        if iteration % loss_log_interval == 0:
-            visual.visualize_scalar(
-                result['g_loss'], 'generator g loss', iteration, env=env
-            )
-            visual.visualize_scalar(
-                -result['c_loss'], 'generator w distance', iteration, env=env
-            )
+        # # log the losses of the generator.
+        # if iteration % loss_log_interval == 0:
+        #     visual.visualize_scalar(
+        #         result['g_loss'], 'generator g loss', iteration, env=env
+        #     )
+        #     visual.visualize_scalar(
+        #         -result['c_loss'], 'generator w distance', iteration, env=env
+        #     )
 
-        # log the generated images of the generator.
-        if iteration % image_log_interval == 0:
-            visual.visualize_images(
-                generator.sample(sample_size).data,
-                'generated samples ({replay_mode})'
-                .format(replay_mode=replay_mode), env=env,
-            )
+        # # log the generated images of the generator.
+        # if iteration % image_log_interval == 0:
+        #     visual.visualize_images(
+        #         generator.sample(sample_size).data,
+        #         'generated samples ({replay_mode})'
+        #         .format(replay_mode=replay_mode), env=env,
+        #     )
 
-        # log the sample images of the generator
-        if iteration % sample_log_interval == 0 and sample_log:
-            utils.test_model(generator, sample_size, os.path.join(
-                sample_dir,
-                env + '-sample-logs',
-                str(iteration)
-            ), verbose=False)
+        # # log the sample images of the generator
+        # if iteration % sample_log_interval == 0 and sample_log:
+        #     utils.test_model(generator, sample_size, os.path.join(
+        #         sample_dir,
+        #         env + '-sample-logs',
+        #         str(iteration)
+        #     ), verbose=False)
 
     return cb
 
@@ -195,7 +205,7 @@ def _solver_training_callback(
         eval_log_interval,
         current_task,
         total_tasks,
-        total_iterations,
+        total_epochs,
         batch_size,
         test_size,
         test_datasets,
@@ -204,44 +214,46 @@ def _solver_training_callback(
         collate_fn,
         env):
 
-    def cb(solver, progress, batch_index, result):
-        iteration = (current_task-1)*total_iterations + batch_index
+    def cb(solver, progress, epoch, iteration, total_iter, result):
         progress.set_description((
             '<Training Solver>    '
             'task: {task}/{tasks} | '
+            'epoch: {epoch}/{epochs} | '
             'progress: [{trained}/{total}] ({percentage:.0f}%) | '
             'loss: {loss:.4} | '
             'prec: {prec:.4}'
         ).format(
             task=current_task,
             tasks=total_tasks,
-            trained=batch_size * batch_index,
-            total=batch_size * total_iterations,
-            percentage=(100.*batch_index/total_iterations),
+            epoch=epoch,
+            epochs=total_epochs,
+            trained=batch_size * iteration,
+            total=batch_size * total_iter,
+            percentage=(100.*iteration/total_iter),
             loss=result['loss'],
             prec=result['precision'],
         ))
 
-        # log the loss of the solver.
-        if iteration % loss_log_interval == 0:
-            visual.visualize_scalar(
-                result['loss'], 'solver loss', iteration, env=env
-            )
+        # # log the loss of the solver.
+        # if iteration % loss_log_interval == 0:
+        #     visual.visualize_scalar(
+        #         result['loss'], 'solver loss', iteration, env=env
+        #     )
 
-        # evaluate the solver on multiple tasks.
-        if iteration % eval_log_interval == 0:
-            names = ['task {}'.format(i+1) for i in range(len(test_datasets))]
-            precs = [
-                utils.validate(
-                    solver, test_datasets[i], test_size=test_size,
-                    cuda=cuda, verbose=False, collate_fn=collate_fn,
-                ) if i+1 <= current_task else 0 for i in
-                range(len(test_datasets))
-            ]
-            title = 'precision ({replay_mode})'.format(replay_mode=replay_mode)
-            visual.visualize_scalars(
-                precs, names, title,
-                iteration, env=env
-            )
+        # # evaluate the solver on multiple tasks.
+        # if iteration % eval_log_interval == 0:
+        #     names = ['task {}'.format(i+1) for i in range(len(test_datasets))]
+        #     precs = [
+        #         utils.validate(
+        #             solver, test_datasets[i], test_size=test_size,
+        #             cuda=cuda, verbose=False, collate_fn=collate_fn,
+        #         ) if i+1 <= current_task else 0 for i in
+        #         range(len(test_datasets))
+        #     ]
+        #     title = 'precision ({replay_mode})'.format(replay_mode=replay_mode)
+        #     visual.visualize_scalars(
+        #         precs, names, title,
+        #         iteration, env=env
+        #     )
 
     return cb

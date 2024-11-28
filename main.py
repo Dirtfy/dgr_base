@@ -14,6 +14,7 @@ import cgd.cdg
 import cgd.classifier
 import cgd.classifier_guidance
 import cgd.unet
+import id2.classifier
 import id2.classifier_guidance
 import id2.id2
 import id2.unet
@@ -33,8 +34,8 @@ parser = argparse.ArgumentParser(
 
 parser.add_argument(
     '--experiment', type=str,
-    choices=['permutated-mnist', 'svhn-mnist', 'mnist-svhn', 'mnist_ci'],
-    default='mnist_ci'
+    choices=['permutated-mnist', 'svhn-mnist', 'mnist-svhn', 'mnist_ci', 'cifar10_ci'],
+    default='cifar10_ci'
 )
 parser.add_argument('--mnist-permutation-number', type=int, default=5)
 parser.add_argument('--mnist-permutation-seed', type=int, default=0)
@@ -52,8 +53,8 @@ parser.add_argument('--solver-reducing-layers', type=int, default=3)
 parser.add_argument('--solver-channel-size', type=int, default=1024)
 
 parser.add_argument('--generator-c-updates-per-g-update', type=int, default=5)
-parser.add_argument('--generator-iterations', type=int, default=3000)
-parser.add_argument('--solver-iterations', type=int, default=1000)
+parser.add_argument('--generator-epochs', type=int, default=50)
+parser.add_argument('--solver-epochs', type=int, default=20)
 parser.add_argument('--importance-of-new-task', type=float, default=.3)
 parser.add_argument('--lr', type=float, default=1e-04)
 parser.add_argument('--beta1', type=float, default=0.5)
@@ -115,7 +116,7 @@ def get_id2(dataset_config):
     unet = id2.unet.UNet(
         n_classes=n_classes,
         img_channels=img_channels)
-    classifier = cgd.classifier.Classifier(
+    classifier = id2.classifier.Classifier(
         n_classes=n_classes,
         img_channels=img_channels)
 
@@ -126,14 +127,18 @@ def get_id2(dataset_config):
         classifier=classifier,
         img_size=img_size,
         image_channels=img_channels,
-        device=device
+        device=device,
+        cfg_uncondition_train_ratio=0.1
     )
     
     return id2.id2.Classifier(
         model=classifier
     ), id2.id2.Id2(
         model=model,
-        n_classes=n_classes
+        n_classes=n_classes,
+        lambda_cg=1,
+        lambda_cfg=0.3,
+        cg_cfg_ratio=0.5
     ), False
 
 def get_cnn_cfd(args, dataset_config, c_emb_dim=10):
@@ -202,10 +207,6 @@ if __name__ == '__main__':
     # decide whether to use cuda or not.
     cuda = torch.cuda.is_available() and args.cuda
     experiment = args.experiment
-    capacity = args.batch_size * max(
-        args.generator_iterations,
-        args.solver_iterations
-    )
 
     if experiment == 'permutated-mnist':
         # generate permutations for the mnist classification tasks.
@@ -217,11 +218,11 @@ if __name__ == '__main__':
 
         # prepare the datasets.
         train_datasets = [
-            get_dataset('mnist', permutation=p, capacity=capacity)
+            get_dataset('mnist', permutation=p)
             for p in permutations
         ]
         test_datasets = [
-            get_dataset('mnist', train=False, permutation=p, capacity=capacity)
+            get_dataset('mnist', train=False, permutation=p)
             for p in permutations
         ]
 
@@ -229,13 +230,13 @@ if __name__ == '__main__':
         dataset_config = DATASET_CONFIGS['mnist']
     elif experiment in ('svhn-mnist', 'mnist-svhn'):
         mnist_color_train = get_dataset(
-            'mnist-color', train=True, capacity=capacity
+            'mnist-color', train=True
         )
         mnist_color_test = get_dataset(
-            'mnist-color', train=False, capacity=capacity
+            'mnist-color', train=False
         )
-        svhn_train = get_dataset('svhn', train=True, capacity=capacity)
-        svhn_test = get_dataset('svhn', train=False, capacity=capacity)
+        svhn_train = get_dataset('svhn', train=True)
+        svhn_test = get_dataset('svhn', train=False)
 
         # prepare the datasets.
         train_datasets = (
@@ -251,10 +252,10 @@ if __name__ == '__main__':
         dataset_config = DATASET_CONFIGS['mnist-color']
     elif experiment == "mnist_ci":
         mnist_train = get_dataset(
-            'mnist', train=True, capacity=capacity
+            'mnist', train=True
         )
         mnist_test = get_dataset(
-            'mnist', train=False, capacity=capacity
+            'mnist', train=False
         )
 
         # path = os.path.join('.', "datasets", "mnist", "MNIST", "byLabel")
@@ -301,6 +302,50 @@ if __name__ == '__main__':
 
         # decide what configuration to use.
         dataset_config = DATASET_CONFIGS['mnist']
+    elif experiment == "cifar10_ci":
+        cifar10_train = get_dataset(
+            'cifar10', train=True
+        )
+        cifar10_test = get_dataset(
+            'cifar10', train=False
+        )
+
+        splited_cifar10_train = split_by_label(cifar10_train)
+        splited_cifar10_test = split_by_label(cifar10_test)
+
+        label_list = list(splited_cifar10_train.keys())
+        # schedule_list = [[2, 8, 9, 0], [5, 7], [1, 3], [6, 4]]
+        schedule_list = []
+
+        selected, label_list = utils.sample(label_list, 4)
+        schedule_list.append(selected)
+
+        selected, label_list = utils.sample(label_list, 2)
+        schedule_list.append(selected)
+
+        selected, label_list = utils.sample(label_list, 2)
+        schedule_list.append(selected)
+        
+        schedule_list.append(label_list)
+
+        print(f"schedule list: {schedule_list}")
+
+        # prepare the datasets.
+        train_datasets = [
+            ConcatDataset([
+                splited_cifar10_train[label]
+                for label in schedule
+            ]) for schedule in schedule_list
+        ]
+        test_datasets = [
+            ConcatDataset([
+                splited_cifar10_test[label]
+                for label in schedule
+            ]) for schedule in schedule_list
+        ]
+
+        # decide what configuration to use.
+        dataset_config = DATASET_CONFIGS['cifar10']
     else:
         raise RuntimeError('Given undefined experiment: {}'.format(experiment))
 
@@ -341,14 +386,16 @@ if __name__ == '__main__':
             scholar, train_datasets, test_datasets,
             replay_mode=args.replay_mode,
             use_gan=use_gan,
+            label_schedule_list=schedule_list,
+            generate_ratio=0.3,
             generator_lambda=args.generator_lambda,
-            generator_iterations=(
-                args.generator_iterations if train_generator else 0
+            generator_epochs=(
+                args.generator_epochs if train_generator else 0
             ),
             generator_c_updates_per_g_update=(
                 args.generator_c_updates_per_g_update
             ),
-            solver_iterations=args.solver_iterations,
+            solver_epochs=args.solver_epochs,
             importance_of_new_task=args.importance_of_new_task,
             batch_size=args.batch_size,
             test_size=args.test_size,

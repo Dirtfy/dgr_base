@@ -1,3 +1,5 @@
+import os
+
 import random
 
 import torch
@@ -7,57 +9,72 @@ import dgr
 from .classifier import Classifier
 from .classifier_guidance import ClassifierGuidedDiffusion
 
+from data import save_as_image
+
 class Id2(dgr.Generator):
     def __init__(self, 
                  model: ClassifierGuidedDiffusion,
-                 n_classes):
+                 n_classes,
+                 lambda_cg,
+                 lambda_cfg,
+                 cg_cfg_ratio):
         super().__init__()
 
         self.device = next(model.parameters()).device
         self.model = model
         self.n_classes = n_classes
+
+        self.lambda_cg = lambda_cg
+        self.lambda_cfg = lambda_cfg
+        self.cg_cfg_ratio = cg_cfg_ratio
+
+        self.label_pool = []
         
         self.optimizer = None
         self.classifier_optimizer = None
 
-    def __img_save(self, x, fn):
-        import torch
-        from torchvision.transforms import ToPILImage
 
-        from PIL import Image
+    def __sample(self, lambda_cg, lambda_cfg, batch_size):
+        assert batch_size > 0
 
-        def tensorToPIL(tensor: torch.Tensor) -> Image:
-            tensor = tensor.clone()
-            tensor_min = tensor.min()
-            tensor_max = tensor.max()
-            tensor = (tensor - tensor_min) / (tensor_max - tensor_min)  # 정규화
+        if len(self.label_pool) == 0:
+            label = None
+        else:
+            label = torch.tensor(
+                random.choices(self.label_pool, k=batch_size)
+                ).to(self.model.device)
 
-            return ToPILImage()(tensor)
-        
-        image = tensorToPIL(x)
-
-        image.save(fn)
+        return self.model.sample(
+            batch_size=batch_size,
+            label=label,
+            lambda_cg=lambda_cg,
+            lambda_cfg=lambda_cfg)
 
     def sample(self, size):
-        label = torch.tensor([
-            random.randrange(self.n_classes) 
-            for _ in range(size//2)]).to(self.model.device)
+        cg_size = int(self.cg_cfg_ratio * size)
+        cfg_size = size - cg_size
+
+        mode_cg = self.__sample(
+            lambda_cg=self.lambda_cg,
+            lambda_cfg=self.lambda_cfg,
+            batch_size=cg_size)
         
-        mode_1 = self.model.sample(
-            batch_size=size//2,
-            label=label,
-            mode=1)
+        # path = os.path.join('.', 'sample','test_2','cg')
+        # os.makedirs(path, exist_ok=True)
+        # for i, image in enumerate(mode_cg):
+        #     save_as_image(image, os.path.join(path, f'{i}.png'))
         
-        self.__img_save(mode_1[0], "tt_1.png")
+        mode_cfg = self.__sample(
+            lambda_cg=self.lambda_cg,
+            lambda_cfg=self.lambda_cfg,
+            batch_size=cfg_size)
         
-        mode_m1 = self.model.sample(
-            batch_size=size//2,
-            label=label,
-            mode=-1)
+        # path = os.path.join('.', 'sample','test_2','cfg')
+        # os.makedirs(path, exist_ok=True)
+        # for i, image in enumerate(mode_cfg):
+        #     save_as_image(image, os.path.join(path, f'{i}.png'))
         
-        self.__img_save(mode_m1[0], "tt_m1.png")
-        
-        concat = torch.concat([mode_1, mode_m1], dim=0)
+        concat = torch.concat([mode_cg, mode_cfg], dim=0)
 
         return concat
     
@@ -75,6 +92,9 @@ class Id2(dgr.Generator):
         loss = self.model.classifier.get_loss(noisy_image, rand_diffusion_step, y)
 
         loss.backward()
+
+        torch.nn.utils.clip_grad_norm_(self.model.classifier.parameters(), max_norm=1.0)
+
         self.classifier_optimizer.step()
 
         return loss
@@ -100,6 +120,9 @@ class Id2(dgr.Generator):
             loss = new_task_loss
 
         loss.backward()
+
+        torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+
         self.optimizer.step()
 
         return {'c_loss': noise_train_loss.item(), 'g_loss': loss.item()}
@@ -114,5 +137,5 @@ class Classifier(dgr.Solver):
 
 
     def forward(self, x):
-        t = torch.zeros(size=(x.shape[0], 1), dtype=torch.long)
+        t = torch.zeros(size=(x.shape[0],), dtype=torch.long)
         return self.model(x, t, None)

@@ -1,12 +1,15 @@
 # References:
     # https://github.com/openai/guided-diffusion/blob/22e0df8183507e13a7813f8d38d51b072ca1e67c/scripts/classifier_sample.py
 
+import random
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from tqdm import tqdm
 import contextlib
 
+from const import EPSILON
 
 class ClassifierGuidedDiffusion(nn.Module):
     def get_linear_beta_schdule(self):
@@ -23,9 +26,8 @@ class ClassifierGuidedDiffusion(nn.Module):
         classifier,
         img_size,
         device,
+        cfg_uncondition_train_ratio=0.2,
         classifier_scale=0,
-        a=1,
-        b=3,
         image_channels=3,
         n_diffusion_steps=1000,
         init_beta=0.0001,
@@ -44,8 +46,7 @@ class ClassifierGuidedDiffusion(nn.Module):
         self.init_beta = init_beta
         self.fin_beta = fin_beta
         self.classifier_scale = classifier_scale
-        self.a = a
-        self.b = b
+        self.cfg_uncondition_train_ratio = cfg_uncondition_train_ratio
 
         self.get_linear_beta_schdule()
         self.alpha = 1 - self.beta
@@ -84,6 +85,8 @@ class ClassifierGuidedDiffusion(nn.Module):
         return noisy_image
 
     def forward(self, noisy_image, diffusion_step, label):
+        if random.uniform(0, 1) <= self.cfg_uncondition_train_ratio: # CFG uncondition train
+            label = None
         return self.unet(noisy_image=noisy_image, diffusion_step=diffusion_step, label=label)
 
     def get_unet_loss(self, ori_image, label):
@@ -114,12 +117,16 @@ class ClassifierGuidedDiffusion(nn.Module):
             label=label,
         )
         log_prob = F.log_softmax(out, dim=-1)
+        if label is None:
+            label = torch.tensor([
+                random.randrange(0, self.classifier.n_classes)
+                for _ in range(noisy_image.shape[0])])
         selected = log_prob[torch.arange(log_prob.size(0), dtype=torch.long), label.long()]
         # "$\nabla_{x_{t}}\log{p_{\phi}}(y \vert x)$"
         return torch.autograd.grad(outputs=selected.sum(), inputs=noisy_image)[0]
 
     # @torch.inference_mode()
-    def take_denoising_step(self, noisy_image, diffusion_step_idx, label, mode):
+    def take_denoising_step(self, noisy_image, diffusion_step_idx, label, lambda_cg, lambda_cfg):
         diffusion_step = self.batchify_diffusion_steps(
             diffusion_step_idx=diffusion_step_idx, batch_size=noisy_image.size(0),
         )
@@ -127,6 +134,7 @@ class ClassifierGuidedDiffusion(nn.Module):
         beta_t = self.index(self.beta, diffusion_step=diffusion_step)
         alpha_bar_t = self.index(self.alpha_bar, diffusion_step=diffusion_step)
         
+        noisy_image = noisy_image.detach().clone()
         grad = self.get_classifier_grad(
             noisy_image=noisy_image, diffusion_step=diffusion_step, label=label,
         )
@@ -140,10 +148,11 @@ class ClassifierGuidedDiffusion(nn.Module):
                 noisy_image=noisy_image.detach(), diffusion_step=diffusion_step, label=None
             )
 
-        pred_noise = pred_noise_cond + mode*self.a*grad - mode*self.b*(pred_noise_cond - pred_noise_uncond)
+        pred_noise = pred_noise_cond + lambda_cg*grad + lambda_cfg*(pred_noise_cond - pred_noise_uncond)
 
-        model_mean = (1 / (alpha_t ** 0.5)) * (
-            noisy_image - ((beta_t / ((1 - alpha_bar_t) ** 0.5)) * pred_noise)
+        eps = torch.tensor(EPSILON).reshape(-1, 1, 1, 1).to(self.device)
+        model_mean = (1 / (alpha_t ** 0.5 + eps)) * (
+            noisy_image - ((beta_t / ((1 - alpha_bar_t) ** 0.5 + eps)) * pred_noise)
         )
         model_var = beta_t
 
@@ -178,7 +187,7 @@ class ClassifierGuidedDiffusion(nn.Module):
     #         (noisy_image -  ((1 - alpha_bar_t) ** 0.5) * new_pred_noise) / ((alpha_bar_t) ** 0.5)
     #     ) + (1 - prev_alpha_bar_t) * new_pred_noise
 
-    def perform_denoising_process(self, noisy_image, start_diffusion_step_idx, label, mode, n_frames=None):
+    def perform_denoising_process(self, noisy_image, start_diffusion_step_idx, label, lambda_cg, lambda_cfg, n_frames=None):
         if n_frames is not None:
             frames = list()
 
@@ -187,7 +196,7 @@ class ClassifierGuidedDiffusion(nn.Module):
         for diffusion_step_idx in pbar:
             pbar.set_description("Denoising...")
 
-            x = self.take_denoising_step(x, diffusion_step_idx=diffusion_step_idx, label=label, mode=mode)
+            x = self.take_denoising_step(x, diffusion_step_idx=diffusion_step_idx, label=label, lambda_cg=lambda_cg, lambda_cfg=lambda_cfg)
 
             if n_frames is not None and (
                 diffusion_step_idx % (self.n_diffusion_steps // n_frames) == 0
@@ -195,12 +204,13 @@ class ClassifierGuidedDiffusion(nn.Module):
                 frames.append(self._get_frame(x))
         return frames if n_frames is not None else x
 
-    def sample(self, batch_size, label, mode):
+    def sample(self, batch_size, label, lambda_cg, lambda_cfg):
         rand_noise = self.sample_noise(batch_size=batch_size)
         return self.perform_denoising_process(
             noisy_image=rand_noise,
             start_diffusion_step_idx=self.n_diffusion_steps - 1,
             label=label,
-            mode=mode,
+            lambda_cg=lambda_cg, 
+            lambda_cfg=lambda_cfg,
             n_frames=None,
         )

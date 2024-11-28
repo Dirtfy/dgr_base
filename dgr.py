@@ -1,10 +1,18 @@
 import abc
+
+import os
+
+from itertools import cycle
+
 import utils
 from tqdm import tqdm
 import torch
 from torch import nn
 from torch.autograd import Variable
-from torch.utils.data import ConcatDataset
+from torch.utils.data import ConcatDataset, Dataset
+from torch.utils.data.dataloader import DataLoader
+
+import data
 
 
 # ============
@@ -104,10 +112,12 @@ class Scholar(GenerativeMixin, nn.Module):
 
     def train_with_replay(
             self, dataset, scholar=None, previous_datasets=None,
+            generate_folder_path=None,
+            generate_ratio=0.5,
             importance_of_new_task=.5, batch_size=32,
-            generator_iterations=2000,
+            generator_epochs=100,
             generator_training_callbacks=None,
-            solver_iterations=1000,
+            solver_epochs=50,
             solver_training_callbacks=None,
             collate_fn=None):
         # scholar and previous datasets cannot be given at the same time.
@@ -123,9 +133,11 @@ class Scholar(GenerativeMixin, nn.Module):
         self._train_batch_trainable_with_replay(
             self.generator, dataset, scholar,
             previous_datasets=previous_datasets,
+            generate_folder_path=generate_folder_path,
+            generate_ratio=generate_ratio,
             importance_of_new_task=importance_of_new_task,
             batch_size=batch_size,
-            iterations=generator_iterations,
+            epochs=generator_epochs,
             training_callbacks=generator_training_callbacks,
             collate_fn=collate_fn,
         )
@@ -134,9 +146,11 @@ class Scholar(GenerativeMixin, nn.Module):
         self._train_batch_trainable_with_replay(
             self.solver, dataset, scholar,
             previous_datasets=previous_datasets,
+            generate_folder_path=generate_folder_path,
+            generate_ratio=generate_ratio,
             importance_of_new_task=importance_of_new_task,
             batch_size=batch_size,
-            iterations=solver_iterations,
+            epochs=solver_epochs,
             training_callbacks=solver_training_callbacks,
             collate_fn=collate_fn,
         )
@@ -149,13 +163,35 @@ class Scholar(GenerativeMixin, nn.Module):
         x = self.generator.sample(size)
         y = self.solver.solve(x)
         return x.data, y.data
+    
+    def generate_dataset(self, scholar, batch_size, total_size, folder_path) -> Dataset:
 
+        os.makedirs(folder_path)
+
+        assert total_size//batch_size > 0
+
+        file_index = 0
+        batch_schedule = [batch_size] * (total_size//batch_size) + [total_size%batch_size]
+        progress = tqdm(batch_schedule, desc="generating dataset")
+        for batch in progress:
+            x, y = scholar.sample(batch)
+
+            for image, label in zip(x, y):
+                file_name = f"{file_index}_{label}.png"
+                data.save_as_image(image, os.path.join(folder_path, file_name))
+
+                file_index += 1
+
+        return data.ImageFolderDataset(folder_path=folder_path)
+    
     def _train_batch_trainable_with_replay(
-            self, trainable, dataset, scholar=None, previous_datasets=None,
-            importance_of_new_task=.5, batch_size=32, iterations=1000,
+            self, trainable, dataset, scholar=None,
+            previous_datasets=None, generate_folder_path=None,
+            generate_ratio=0.5,
+            importance_of_new_task=.5, batch_size=32, epochs=100,
             training_callbacks=None, collate_fn=None):
-        # do not train the model when given non-positive iterations.
-        if iterations <= 0:
+        # do not train the model when given non-positive epochs.
+        if epochs <= 0:
             return
 
         # create data loaders.
@@ -163,36 +199,50 @@ class Scholar(GenerativeMixin, nn.Module):
             dataset, batch_size, cuda=self._is_on_cuda(),
             collate_fn=collate_fn,
         ))
+
+        is_generated = False
+        if not previous_datasets and scholar is not None:
+            if os.path.isdir(generate_folder_path):
+                previous_dataset = data.ImageFolderDataset(generate_folder_path)
+            else:
+                previous_dataset = self.generate_dataset(
+                    scholar, 
+                    batch_size, 
+                    int(len(dataset)*generate_ratio), 
+                    generate_folder_path)
+            previous_datasets = [previous_dataset]
+            is_generated = True
+  
         data_loader_previous = iter(utils.get_data_loader(
             ConcatDataset(previous_datasets), batch_size,
             cuda=self._is_on_cuda(), collate_fn=collate_fn,
         )) if previous_datasets else None
 
-        # 내맘대로 추가한 줄
-        # iteration의 의미가 뭘까..
-        data_len = len(data_loader) if data_loader is not None else float('inf')
-        prev_data_len = len(data_loader_previous) if data_loader_previous is not None else float('inf')
-        iterations = min(data_len, prev_data_len)
+        data_cycle = cycle(data_loader)
+        prev_data_cycle = cycle(data_loader_previous) if data_loader_previous is not None else None
 
         # define a tqdm progress bar.
-        progress = tqdm(range(1, iterations+1))
+        batch_count = len(data_loader)
+        total_iteration = epochs*batch_count
+        progress = tqdm(range(1, total_iteration+1))
 
-        for batch_index in progress:
+        for iteration in progress:
             # decide from where to sample the training data.
             from_scholar = scholar is not None
             from_previous_datasets = bool(previous_datasets)
             cuda = self._is_on_cuda()
 
             # sample the real training data.
-            x, y = next(data_loader)
+            x, y = next(data_cycle)
             x = Variable(x).cuda() if cuda else Variable(x)
             y = Variable(y).cuda() if cuda else Variable(y)
 
             # sample the replayed training data.
-            if from_previous_datasets:
-                x_, y_ = next(data_loader_previous)
+            if from_previous_datasets and not is_generated:
+                x_, y_ = next(prev_data_cycle)
             elif from_scholar:
-                x_, y_ = scholar.sample(batch_size)
+                x_, y_ = next(prev_data_cycle)
+                # x_, y_ = scholar.sample(batch_size)
             else:
                 x_ = y_ = None
 
@@ -208,7 +258,9 @@ class Scholar(GenerativeMixin, nn.Module):
 
             # fire the callbacks on each iteration.
             for callback in (training_callbacks or []):
-                callback(trainable, progress, batch_index, result)
+                epoch = iteration // batch_count
+                callback(trainable, progress, epoch, iteration, total_iteration, result)
+
 
     def _is_on_cuda(self):
         return next(self.parameters()).is_cuda

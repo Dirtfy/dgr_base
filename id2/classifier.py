@@ -6,6 +6,8 @@ from torch import nn
 from torch.nn import functional as F
 import contextlib
 
+from const import EPSILON
+
 
 class Swish(nn.Module):
     def forward(self, x):
@@ -20,7 +22,7 @@ class TimeEmbedding(nn.Module):
 
         pos = torch.arange(max_len).unsqueeze(1)
         i = torch.arange(self.d_model // 2).unsqueeze(0)
-        angle = pos / (10_000 ** (2 * i / self.d_model))
+        angle = pos / (10_000 ** (2 * i / (self.d_model+EPSILON)) +EPSILON)
         pe_enc_mat = torch.zeros(size=(max_len, self.d_model))
         pe_enc_mat[:, 0:: 2] = torch.sin(angle)
         pe_enc_mat[:, 1:: 2] = torch.cos(angle)
@@ -96,13 +98,7 @@ class ResBlock(nn.Module):
     def forward(self, x, t):
         skip = x
         x = self.layers1(x)
-        print(f"x {x.shape}")
-        print(f"t {t.shape}")
-        t = self.time_proj(t)
-        print(f"t {t.shape}")
-        t = t[:, :, None, None]
-        print(f"t {t.shape}")
-        x = x + t
+        x = x + self.time_proj(t)[:, :, None, None]
         x = self.layers2(x)
         x = x + self.conv(skip)
         return self.attn_block(x)
@@ -126,6 +122,8 @@ class Classifier(nn.Module):
         super().__init__()
 
         assert all([i < len(channel_mults) for i in attns]), "attns index out of bound"
+
+        self.n_classes = n_classes
 
         time_channels = channels * 4
         self.time_embed = nn.Sequential(

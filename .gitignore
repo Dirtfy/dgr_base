@@ -107,3 +107,5 @@ samples/
 .env
 _cache_*
 .download.cgi*
+
+sample/

@@ -6,7 +6,7 @@ _WINDOW_CASH = {}
 
 
 def _vis(env='main'):
-    return Visdom(env=env)
+    return Visdom(env=env, port=8097)
 
 
 def visualize_image(tensor, name, label=None, env='main', w=250, h=250,
@@ -119,6 +119,6 @@ def visualize_scalars(scalars, names, title, iteration, env='main'):
     Y = np.column_stack(scalars) if multi else scalars[0]
 
     if title in _WINDOW_CASH:
-        _vis(env).line(X=X, Y=Y, win=_WINDOW_CASH[title], opts=options)
+        _vis(env).line(X=X, Y=Y, win=_WINDOW_CASH[title], update="replace", opts=options)
     else:
         _WINDOW_CASH[title] = _vis(env).line(X=X, Y=Y, opts=options)

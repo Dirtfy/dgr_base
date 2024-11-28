@@ -11,6 +11,8 @@ from torch.utils.data.dataloader import default_collate
 
 
 def label_squeezing_collate_fn(batch):
+    # for b in batch:
+    #     print(b)
     x, y = default_collate(batch)
     return x, y.long().squeeze()
 
@@ -19,6 +21,7 @@ def get_data_loader(dataset, batch_size, cuda=False, collate_fn=None):
     return DataLoader(
         dataset, batch_size=batch_size, shuffle=True,
         collate_fn=(collate_fn or default_collate),
+        drop_last=True,
         **({'num_workers': 0, 'pin_memory': True} if cuda else {})
     )
 
