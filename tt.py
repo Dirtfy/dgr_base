@@ -8,7 +8,5 @@ import time
 
 import utils
 
-v = torch.tensor(1)
-print(v)
-print(v.shape)
-
+v = datasets.CIFAR10("/home/mskim/project/pytorch-deep-generative-replay/datasets/cifar10")
+v[0][0].save("/home/mskim/project/pytorch-deep-generative-replay/tt.png")

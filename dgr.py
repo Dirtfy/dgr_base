@@ -2,6 +2,7 @@ import abc
 
 import os
 
+import random
 from itertools import cycle
 
 import utils
@@ -21,7 +22,7 @@ import data
 
 class GenerativeMixin(object):
     """Mixin which defines a sampling iterface for a generative model."""
-    def sample(self, size):
+    def sample(self, batch_size, y):
         raise NotImplementedError
 
 
@@ -42,6 +43,9 @@ class BatchTrainable(nn.Module, metaclass=abc.ABCMeta):
 
 class Generator(GenerativeMixin, BatchTrainable):
     """Abstract generator module of a scholar module"""
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.label_pool = []
 
 
 class Solver(BatchTrainable):
@@ -159,9 +163,9 @@ class Scholar(GenerativeMixin, nn.Module):
     def name(self):
         return self.label
 
-    def sample(self, size):
-        x = self.generator.sample(size)
-        y = self.solver.solve(x)
+    def sample(self, batch_size, y):
+        x = self.generator.sample(batch_size)
+        # y = self.solver.solve(x)
         return x.data, y.data
     
     def generate_dataset(self, scholar, batch_size, total_size, folder_path) -> Dataset:
@@ -172,9 +176,13 @@ class Scholar(GenerativeMixin, nn.Module):
 
         file_index = 0
         batch_schedule = [batch_size] * (total_size//batch_size) + [total_size%batch_size]
-        progress = tqdm(batch_schedule, desc="generating dataset")
+        progress = tqdm(batch_schedule, desc=f"generating dataset | folder_path: {folder_path}")
         for batch in progress:
-            x, y = scholar.sample(batch)
+            label = torch.tensor(
+                        random.choices(scholar.generator.label_pool, k=batch)
+                    )
+                
+            x, y = scholar.sample(batch, label)
 
             for image, label in zip(x, y):
                 file_name = f"{file_index}_{label}.png"

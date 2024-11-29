@@ -193,7 +193,7 @@ class Classifier(nn.Module):
         device = next(self.parameters()).device
 
         with torch.autocast(
-            device_type=device.type, dtype=torch.float16,
+            device_type=device.type, dtype=torch.float32,
         ) if device.type == "cuda" else contextlib.nullcontext():
             pred = self(
                 noisy_image=noisy_image,

@@ -98,7 +98,7 @@ class ClassifierGuidedDiffusion(nn.Module):
             rand_noise=rand_noise,
         )
         with torch.autocast(
-            device_type=self.device.type, dtype=torch.float16,
+            device_type=self.device.type, dtype=torch.float32,
         ) if self.device.type == "cuda" else contextlib.nullcontext():
             pred_noise = self(
                 noisy_image=noisy_image, diffusion_step=rand_diffusion_step, label=label,
@@ -151,8 +151,8 @@ class ClassifierGuidedDiffusion(nn.Module):
         pred_noise = pred_noise_cond + lambda_cg*grad + lambda_cfg*(pred_noise_cond - pred_noise_uncond)
 
         eps = torch.tensor(EPSILON).reshape(-1, 1, 1, 1).to(self.device)
-        model_mean = (1 / (alpha_t ** 0.5 + eps)) * (
-            noisy_image - ((beta_t / ((1 - alpha_bar_t) ** 0.5 + eps)) * pred_noise)
+        model_mean = (1 / (alpha_t.sqrt() + eps)) * (
+            noisy_image - ((beta_t / ((1 - alpha_bar_t).sqrt() + eps)) * pred_noise)
         )
         model_var = beta_t
 

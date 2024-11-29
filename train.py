@@ -26,6 +26,8 @@ def train(scholar, train_datasets, test_datasets, replay_mode, use_gan,
           sample_log=False,
           sample_dir='./samples',
           checkpoint_dir='./checkpoints',
+          generator_log_path=os.path.join('.', "log", "generator.txt"),
+          solver_log_path=os.path.join('.', "log", "solver.txt"),
           collate_fn=None,
           cuda=False):
     # define solver criterion and generators for the scholar model.
@@ -84,6 +86,7 @@ def train(scholar, train_datasets, test_datasets, replay_mode, use_gan,
             total_epochs=generator_epochs,
             batch_size=batch_size,
             replay_mode=replay_mode,
+            log_path=generator_log_path,
             env=scholar.name,
         )]
         solver_training_callbacks = [_solver_training_callback(
@@ -96,8 +99,10 @@ def train(scholar, train_datasets, test_datasets, replay_mode, use_gan,
             test_size=test_size,
             test_datasets=test_datasets,
             replay_mode=replay_mode,
+            sample_dir=sample_dir,
             cuda=cuda,
             collate_fn=collate_fn,
+            log_path=solver_log_path,
             env=scholar.name,
         )]
 
@@ -149,10 +154,11 @@ def _generator_training_callback(
         batch_size,
         sample_size,
         replay_mode,
+        log_path,
         env):
 
     def cb(generator, progress, epoch, iteration, total_iter, result):
-        progress.set_description((
+        desc = (
             '<Training Generator> '
             'task: {task}/{tasks} | '
             'epoch: {epoch}/{epochs} | '
@@ -170,7 +176,11 @@ def _generator_training_callback(
             percentage=(100.*iteration/total_iter),
             g_loss=result['g_loss'],
             w_dist=-result['c_loss'],
-        ))
+        )
+        progress.set_description(desc)
+
+        with open(log_path, 'a') as f:
+            f.write(desc+'\n')
 
         # # log the losses of the generator.
         # if iteration % loss_log_interval == 0:
@@ -209,13 +219,15 @@ def _solver_training_callback(
         batch_size,
         test_size,
         test_datasets,
+        sample_dir,
         cuda,
         replay_mode,
         collate_fn,
+        log_path,
         env):
 
     def cb(solver, progress, epoch, iteration, total_iter, result):
-        progress.set_description((
+        desc = (
             '<Training Solver>    '
             'task: {task}/{tasks} | '
             'epoch: {epoch}/{epochs} | '
@@ -232,7 +244,11 @@ def _solver_training_callback(
             percentage=(100.*iteration/total_iter),
             loss=result['loss'],
             prec=result['precision'],
-        ))
+        )
+        progress.set_description(desc)
+
+        with open(log_path, 'a') as f:
+            f.write(desc+'\n')
 
         # # log the loss of the solver.
         # if iteration % loss_log_interval == 0:

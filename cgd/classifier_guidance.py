@@ -91,7 +91,7 @@ class ClassifierGuidedDiffusion(nn.Module):
             rand_noise=rand_noise,
         )
         with torch.autocast(
-            device_type=self.device.type, dtype=torch.float16,
+            device_type=self.device.type, dtype=torch.float32,
         ) if self.device.type == "cuda" else contextlib.nullcontext():
             pred_noise = self(
                 noisy_image=noisy_image, diffusion_step=rand_diffusion_step, label=label,

@@ -20,13 +20,10 @@ class CDG(dgr.Generator):
         self.optimizer = None
         self.classifier_optimizer = None
 
-    def sample(self, size):
-        label = torch.tensor([
-            random.randrange(self.n_classes) 
-            for _ in range(size)]).to(self.model.device)
+    def sample(self, size, y):
         return self.model.sample(
             batch_size=size,
-            label=label)
+            label=y)
     
     def classifier_noise_train_a_batch(self, x, y) -> torch.Tensor:
         rand_diffusion_step = self.model.sample_diffusion_step(batch_size=x.size(0))

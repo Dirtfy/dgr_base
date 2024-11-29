@@ -34,49 +34,50 @@ class Id2(dgr.Generator):
         self.classifier_optimizer = None
 
 
-    def __sample(self, lambda_cg, lambda_cfg, batch_size):
+    def __sample(self, lambda_cg, lambda_cfg, y, batch_size):
         assert batch_size > 0
 
-        if len(self.label_pool) == 0:
-            label = None
-        else:
-            label = torch.tensor(
-                random.choices(self.label_pool, k=batch_size)
-                ).to(self.model.device)
+        # if len(self.label_pool) == 0:
+        #     label = None
+        # else:
+        #     label = torch.tensor(
+        #         random.choices(self.label_pool, k=batch_size)
+        #         ).to(self.model.device)
 
         return self.model.sample(
             batch_size=batch_size,
-            label=label,
+            label=y,
             lambda_cg=lambda_cg,
             lambda_cfg=lambda_cfg)
 
-    def sample(self, size):
-        cg_size = int(self.cg_cfg_ratio * size)
-        cfg_size = size - cg_size
+    def sample(self, size, y=None):
+        return self.__sample(self.lambda_cg, self.lambda_cfg, y, size)
+        # cg_size = int(self.cg_cfg_ratio * size)
+        # cfg_size = size - cg_size
 
-        mode_cg = self.__sample(
-            lambda_cg=self.lambda_cg,
-            lambda_cfg=self.lambda_cfg,
-            batch_size=cg_size)
+        # mode_cg = self.__sample(
+        #     lambda_cg=self.lambda_cg,
+        #     lambda_cfg=self.lambda_cfg,
+        #     batch_size=cg_size)
         
         # path = os.path.join('.', 'sample','test_2','cg')
         # os.makedirs(path, exist_ok=True)
         # for i, image in enumerate(mode_cg):
         #     save_as_image(image, os.path.join(path, f'{i}.png'))
         
-        mode_cfg = self.__sample(
-            lambda_cg=self.lambda_cg,
-            lambda_cfg=self.lambda_cfg,
-            batch_size=cfg_size)
+        # mode_cfg = self.__sample(
+        #     lambda_cg=self.lambda_cg,
+        #     lambda_cfg=self.lambda_cfg,
+        #     batch_size=cfg_size)
         
         # path = os.path.join('.', 'sample','test_2','cfg')
         # os.makedirs(path, exist_ok=True)
         # for i, image in enumerate(mode_cfg):
         #     save_as_image(image, os.path.join(path, f'{i}.png'))
         
-        concat = torch.concat([mode_cg, mode_cfg], dim=0)
+        # concat = torch.concat([mode_cg, mode_cfg], dim=0)
 
-        return concat
+        # return concat
     
     def classifier_noise_train_a_batch(self, x, y) -> torch.Tensor:
         rand_diffusion_step = self.model.sample_diffusion_step(batch_size=x.size(0))
