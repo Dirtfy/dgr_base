@@ -1,4 +1,0 @@
-fp32
-dataset generate label classifier 말고 직접 설정
-diffusion은 기본 cg
-task당 label은 두개 정도
