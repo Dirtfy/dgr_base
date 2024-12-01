@@ -164,23 +164,27 @@ class Scholar(GenerativeMixin, nn.Module):
         return self.label
 
     def sample(self, batch_size, y):
-        x = self.generator.sample(batch_size)
+        x = self.generator.sample(batch_size, y)
         # y = self.solver.solve(x)
         return x.data, y.data
     
     def generate_dataset(self, scholar, batch_size, total_size, folder_path) -> Dataset:
 
+        # if not os.path.exists(folder_path):
         os.makedirs(folder_path)
+            # print(f"make {folder_path}")
 
-        assert total_size//batch_size > 0
+        label_pool = scholar.generator.label_pool
+        print(f"generating label_pool: {label_pool} | size: {total_size}\n"
+              f"folder_path: {folder_path}")
 
         file_index = 0
         batch_schedule = [batch_size] * (total_size//batch_size) + [total_size%batch_size]
-        progress = tqdm(batch_schedule, desc=f"generating dataset | folder_path: {folder_path}")
+        progress = tqdm(batch_schedule, desc=f"generating dataset")
         for batch in progress:
             label = torch.tensor(
-                        random.choices(scholar.generator.label_pool, k=batch)
-                    )
+                        random.choices(label_pool, k=batch)
+                    ).to(next(scholar.parameters()).device)
                 
             x, y = scholar.sample(batch, label)
 
@@ -205,7 +209,7 @@ class Scholar(GenerativeMixin, nn.Module):
         # create data loaders.
         data_loader = iter(utils.get_data_loader(
             dataset, batch_size, cuda=self._is_on_cuda(),
-            collate_fn=collate_fn,
+            collate_fn=collate_fn, drop_last=True
         ))
 
         is_generated = False
@@ -220,10 +224,13 @@ class Scholar(GenerativeMixin, nn.Module):
                     generate_folder_path)
             previous_datasets = [previous_dataset]
             is_generated = True
-  
+
+            print(f"prev_len: {len(ConcatDataset(previous_datasets))}")
+            
         data_loader_previous = iter(utils.get_data_loader(
             ConcatDataset(previous_datasets), batch_size,
             cuda=self._is_on_cuda(), collate_fn=collate_fn,
+            drop_last=True
         )) if previous_datasets else None
 
         data_cycle = cycle(data_loader)

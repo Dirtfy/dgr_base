@@ -1,5 +1,8 @@
 import os.path
 import copy
+import random
+
+import torch
 from torch import optim
 from torch import nn
 import utils
@@ -73,6 +76,9 @@ def train(scholar, train_datasets, test_datasets, replay_mode, use_gan,
     previous_datasets = None
 
     for task, train_dataset in enumerate(train_datasets, 1):
+        label_pool = []
+        for schedule in label_schedule_list[:task]:
+            label_pool.extend(schedule)
         # define callbacks for visualizing the training process.
         generator_training_callbacks = [_generator_training_callback(
             loss_log_interval=loss_log_interval,
@@ -87,6 +93,7 @@ def train(scholar, train_datasets, test_datasets, replay_mode, use_gan,
             batch_size=batch_size,
             replay_mode=replay_mode,
             log_path=generator_log_path,
+            label_pool=label_pool,
             env=scholar.name,
         )]
         solver_training_callbacks = [_solver_training_callback(
@@ -122,6 +129,10 @@ def train(scholar, train_datasets, test_datasets, replay_mode, use_gan,
             collate_fn=collate_fn,
         )
 
+        if label_schedule_list is not None:
+            scholar.generator.label_pool.extend(label_schedule_list[task-1])
+            print(f"label pool extend task_{task} label {label_schedule_list[task-1]} -> {scholar.generator.label_pool}")
+
         previous_scholar = (
             copy.deepcopy(scholar) if replay_mode == 'generative-replay' else
             None
@@ -130,10 +141,6 @@ def train(scholar, train_datasets, test_datasets, replay_mode, use_gan,
             train_datasets[:task] if replay_mode == 'exact-replay' else
             None
         )
-
-        if label_schedule_list is not None:
-            print(f"label pool extend task_{task} label {label_schedule_list[task-1]}")
-            previous_scholar.generator.label_pool.extend(label_schedule_list[task-1])
 
     # save the model after the experiment.
     print()
@@ -155,6 +162,7 @@ def _generator_training_callback(
         sample_size,
         replay_mode,
         log_path,
+        label_pool,
         env):
 
     def cb(generator, progress, epoch, iteration, total_iter, result):
@@ -193,8 +201,11 @@ def _generator_training_callback(
 
         # # log the generated images of the generator.
         # if iteration % image_log_interval == 0:
+        #     label = torch.tensor(
+        #                 random.choices(label_pool, k=sample_size)
+        #             ).to(next(generator.parameters()).device)
         #     visual.visualize_images(
-        #         generator.sample(sample_size).data,
+        #         generator.sample(sample_size, label).data,
         #         'generated samples ({replay_mode})'
         #         .format(replay_mode=replay_mode), env=env,
         #     )

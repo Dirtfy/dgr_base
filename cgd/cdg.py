@@ -78,5 +78,5 @@ class Classifier(dgr.Solver):
 
 
     def forward(self, x):
-        t = torch.zeros(size=(x.shape[0], 1), dtype=torch.long)
+        t = torch.zeros(size=(x.shape[0],), dtype=torch.long)
         return self.model(x, t, None)

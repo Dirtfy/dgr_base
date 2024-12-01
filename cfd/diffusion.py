@@ -13,7 +13,7 @@ class GaussianDiffusion(nn.Module):
         self.dtype = dtype
         self.model = model.to(device)
         self.model.dtype = self.dtype
-        self.betas = torch.tensor(betas,dtype=self.dtype)
+        self.betas = torch.tensor(betas,dtype=self.dtype).to(device)
         self.w = w
         self.v = v
         self.T = len(betas)

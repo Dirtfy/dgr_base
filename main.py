@@ -167,7 +167,7 @@ def get_cnn_cfd(args, dataset_config, c_emb_dim=10):
                     w = 3.0,
                     v = 1.0,
                     device = device
-                )
+                ).to(device)
     
     return CNN(
         image_size=dataset_config['size'],
@@ -317,6 +317,7 @@ if __name__ == '__main__':
         label_list = list(splited_cifar10_train.keys())
         # schedule_list = [[2, 8, 9, 0], [5, 7], [1, 3], [6, 4]]
         schedule_list = [[0, 1], [2, 3], [4, 5], [6, 7]]
+        # schedule_list = [[0], [1], [2]]
         # schedule_list = []
 
         # selected, label_list = utils.sample(label_list, 4)
@@ -355,7 +356,7 @@ if __name__ == '__main__':
 
     # solver, generator, use_gan = get_cnn_wgan(args, dataset_config)
     solver, generator, use_gan = get_cgc_cgd(dataset_config=dataset_config)
-    # solver, generator, use_gan = get_cnn_cfd(dataset_config=dataset_config)
+    # solver, generator, use_gan = get_cnn_cfd(args=args, dataset_config=dataset_config)
     # solver, generator, use_gan = get_id2(dataset_config=dataset_config)
     
     label = '{experiment}-{model_name}-{replay_mode}-r{importance_of_new_task}'.format(

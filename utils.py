@@ -17,11 +17,11 @@ def label_squeezing_collate_fn(batch):
     return x, y.long().squeeze()
 
 
-def get_data_loader(dataset, batch_size, cuda=False, collate_fn=None):
+def get_data_loader(dataset, batch_size, cuda=False, collate_fn=None, drop_last=False):
     return DataLoader(
         dataset, batch_size=batch_size, shuffle=True,
         collate_fn=(collate_fn or default_collate),
-        drop_last=True,
+        drop_last=drop_last,
         **({'num_workers': 0, 'pin_memory': True} if cuda else {})
     )
 
@@ -110,9 +110,9 @@ def gaussian_intiailize(model, std=.01):
 
     for p in parameters:
         if p.dim() >= 2:
-            nn.init.normal(p, std=std)
+            nn.init.normal_(p, std=std)
         else:
-            nn.init.constant(p, 0)
+            nn.init.constant_(p, 0)
 
 def sample(list, count):
         selected = random.sample(list, count)

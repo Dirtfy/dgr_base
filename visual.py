@@ -109,7 +109,8 @@ def visualize_scalars(scalars, names, title, iteration, env='main'):
         marginleft=30,
         marginright=30,
         marginbottom=80,
-        margintop=30,
+        margintop=30,   
+        lineWidth=4,
     )
 
     X = (

@@ -23,20 +23,13 @@ class CFD(dgr.Generator):
 
         self.optimizer = None
 
-    def sample(self, size):
-
-        emb_device = next(self.embeder.parameters()).device
-        
-        labels = torch.tensor([
-            random.randrange(self.n_classes) 
-            for _ in range(size)]).to(emb_device)
-        
+    def sample(self, size, y):        
         sample_shape = (size, *self.img_shape)
 
         model_kwargs = {}
-        model_kwargs['cemb'] = self.embeder(labels)
+        model_kwargs['cemb'] = self.embeder(y)
 
-        return self.model.sample(shape=sample_shape, model_kwargs=model_kwargs)
+        return self.model.sample(shape=sample_shape, **model_kwargs)
 
     def train_a_batch(self, x, y, x_=None, y_=None, importance_of_new_task=.5):
         assert x_ is None or x.size() == x_.size()
@@ -47,12 +40,12 @@ class CFD(dgr.Generator):
         model_kwargs = {}
         model_kwargs['cemb'] = self.embeder(y)
 
-        new_task_loss = self.model.trainloss(x, model_kwargs)
+        new_task_loss = self.model.trainloss(x, **model_kwargs)
         if x_ is not None and y_ is not None:
             _model_kwargs = {}
             _model_kwargs['cemb'] = self.embeder(y)
 
-            old_task_loss = self.model.trainloss(x_, _model_kwargs)
+            old_task_loss = self.model.trainloss(x_, **_model_kwargs)
 
             loss = (
                 importance_of_new_task * new_task_loss +

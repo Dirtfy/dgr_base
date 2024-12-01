@@ -109,3 +109,4 @@ _cache_*
 .download.cgi*
 
 sample/
+log/
