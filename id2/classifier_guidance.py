@@ -148,7 +148,12 @@ class ClassifierGuidedDiffusion(nn.Module):
                 noisy_image=noisy_image.detach(), diffusion_step=diffusion_step, label=None
             )
 
-        pred_noise = pred_noise_cond + lambda_cg*grad + lambda_cfg*(pred_noise_cond - pred_noise_uncond)
+        cg_coef = -1 * alpha_t.sqrt() * (1 - alpha_bar_t).sqrt()
+        cg_term = cg_coef * lambda_cg * grad
+
+        cfg_term = lambda_cfg*(pred_noise_cond - pred_noise_uncond)
+
+        pred_noise = pred_noise_cond + cg_term + cfg_term
 
         eps = torch.tensor(EPSILON).reshape(-1, 1, 1, 1).to(self.device)
         model_mean = (1 / (alpha_t.sqrt() + eps)) * (

@@ -355,9 +355,9 @@ if __name__ == '__main__':
     # define the models.
 
     # solver, generator, use_gan = get_cnn_wgan(args, dataset_config)
-    solver, generator, use_gan = get_cgc_cgd(dataset_config=dataset_config)
+    # solver, generator, use_gan = get_cgc_cgd(dataset_config=dataset_config)
     # solver, generator, use_gan = get_cnn_cfd(args=args, dataset_config=dataset_config)
-    # solver, generator, use_gan = get_id2(dataset_config=dataset_config)
+    solver, generator, use_gan = get_id2(dataset_config=dataset_config)
     
     label = '{experiment}-{model_name}-{replay_mode}-r{importance_of_new_task}'.format(
         experiment=experiment,
@@ -390,7 +390,7 @@ if __name__ == '__main__':
             replay_mode=args.replay_mode,
             use_gan=use_gan,
             label_schedule_list=schedule_list,
-            generate_ratio=0.3,
+            generate_ratio=0.01,
             generator_lambda=args.generator_lambda,
             generator_epochs=(
                 args.generator_epochs if train_generator else 0

@@ -8,5 +8,10 @@ import time
 
 import utils
 
+import data
+
 v = datasets.CIFAR10("/home/mskim/project/pytorch-deep-generative-replay/datasets/cifar10")
-v[0][0].save("/home/mskim/project/pytorch-deep-generative-replay/tt.png")
+v = data.split_by_label(v)
+# print(type(v[0][0][0]))
+for i in range(10):
+    v[i][3][0].save(f"/home/mskim/project/pytorch-deep-generative-replay/tt_{i}.png")
