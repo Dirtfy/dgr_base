@@ -28,6 +28,8 @@ import cgd
 import cfd
 import id2
 
+from logger import FileLogger
+
 parser = argparse.ArgumentParser(
     'PyTorch implementation of Deep Generative Replay'
 )
@@ -137,7 +139,7 @@ def get_id2(dataset_config):
         model=model,
         n_classes=n_classes,
         lambda_cg=1,
-        lambda_cfg=0.3,
+        lambda_cfg=1,
         cg_cfg_ratio=0.5
     ), False
 
@@ -383,6 +385,9 @@ if __name__ == '__main__':
         args.sample_log
     )
 
+    logger = FileLogger(file_path=os.path.join(".","log"),file_name=label+".txt")
+    logger.on()
+    
     # run the experiment.
     if args.train:
         train(
@@ -419,3 +424,5 @@ if __name__ == '__main__':
         path = os.path.join(args.sample_dir, '{}-sample'.format(scholar.name))
         utils.load_checkpoint(scholar, args.checkpoint_dir)
         utils.test_model(scholar.generator, args.sample_size, path)
+    
+    logger.off()
