@@ -29,8 +29,8 @@ def train(scholar, train_datasets, test_datasets, replay_mode, use_gan,
           sample_log=False,
           sample_dir='./samples',
           checkpoint_dir='./checkpoints',
-          generator_log_path=os.path.join('.', "log", "id2_1_1_generator.txt"),
-          solver_log_path=os.path.join('.', "log", "id2_1_1_solver.txt"),
+          generator_log_path=os.path.join('.', "log", "generator.txt"),
+          solver_log_path=os.path.join('.', "log", "solver.txt"),
           collate_fn=None,
           cuda=False):
     # define solver criterion and generators for the scholar model.

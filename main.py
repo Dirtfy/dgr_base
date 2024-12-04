@@ -14,6 +14,10 @@ import cgd.cdg
 import cgd.classifier
 import cgd.classifier_guidance
 import cgd.unet
+import id1.classifier
+import id1.classifier_guidance
+import id1.id1
+import id1.unet
 import id2.classifier
 import id2.classifier_guidance
 import id2.id2
@@ -27,8 +31,9 @@ from models import WGAN, CNN
 import cgd
 import cfd
 import id2
+import id1
 
-from logger import FileLogger
+from logger.FileLogger import FileLogger
 
 parser = argparse.ArgumentParser(
     'PyTorch implementation of Deep Generative Replay'
@@ -142,6 +147,43 @@ def get_id2(dataset_config):
         lambda_cfg=1,
         cg_cfg_ratio=0.5
     ), False
+
+def get_id1(dataset_config):
+    n_classes = dataset_config['classes']
+    img_size = dataset_config['size']
+    img_channels = dataset_config['channels']
+
+    unet = id1.unet.UNet(
+        n_classes=n_classes,
+        img_channels=img_channels)
+    classifier = id1.classifier.Classifier(
+        n_classes=n_classes,
+        img_channels=img_channels)
+
+    device = torch.device("cuda")
+
+    model = id1.classifier_guidance.ClassifierGuidedDiffusion(
+        unet=unet,
+        classifier=classifier,
+        img_size=img_size,
+        image_channels=img_channels,
+        device=device,
+        cfg_uncondition_train_ratio=0.1
+    )
+    
+    return id1.id1.Classifier(
+        model=classifier
+    ), id1.id1.Id1(
+        model=model,
+        n_classes=n_classes,
+        lambda_cg=1,
+        lambda_cfg=1,
+        cg_cfg_ratio=0.5,
+        distillation_ratio=0.01,
+        distillation_label_ratio=0.1,
+        distillation_t=2
+    ), False
+
 
 def get_cnn_cfd(args, dataset_config, c_emb_dim=10):
     n_classes = dataset_config['classes']
@@ -359,7 +401,8 @@ if __name__ == '__main__':
     # solver, generator, use_gan = get_cnn_wgan(args, dataset_config)
     # solver, generator, use_gan = get_cgc_cgd(dataset_config=dataset_config)
     # solver, generator, use_gan = get_cnn_cfd(args=args, dataset_config=dataset_config)
-    solver, generator, use_gan = get_id2(dataset_config=dataset_config)
+    # solver, generator, use_gan = get_id2(dataset_config=dataset_config)
+    solver, generator, use_gan = get_id1(dataset_config=dataset_config)
     
     label = '{experiment}-{model_name}-{replay_mode}-r{importance_of_new_task}'.format(
         experiment=experiment,
@@ -387,7 +430,7 @@ if __name__ == '__main__':
 
     logger = FileLogger(file_path=os.path.join(".","log"),file_name=label+".txt")
     logger.on()
-    
+
     # run the experiment.
     if args.train:
         train(
@@ -395,7 +438,7 @@ if __name__ == '__main__':
             replay_mode=args.replay_mode,
             use_gan=use_gan,
             label_schedule_list=schedule_list,
-            generate_ratio=0.01,
+            generate_ratio=0.005,
             generator_lambda=args.generator_lambda,
             generator_epochs=(
                 args.generator_epochs if train_generator else 0
@@ -417,6 +460,8 @@ if __name__ == '__main__':
             sample_log=args.sample_log,
             sample_dir=args.sample_dir,
             checkpoint_dir=args.checkpoint_dir,
+            generator_log_path=os.path.join('.', "log", f"{label}_generator.txt"),
+            solver_log_path=os.path.join('.', "log", f"{label}_solver.txt"),
             collate_fn=utils.label_squeezing_collate_fn,
             cuda=cuda
         )

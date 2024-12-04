@@ -133,6 +133,10 @@ class Scholar(GenerativeMixin, nn.Module):
             'scholar and previous datasets cannot be given at the same time'
         )
 
+        if scholar is not None:
+            scholar.eval()
+            self.generator.prev_scholar = scholar
+
         # train the generator of the scholar.
         self._train_batch_trainable_with_replay(
             self.generator, dataset, scholar,
