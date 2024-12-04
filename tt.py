@@ -2,6 +2,7 @@ import os
 import random
 
 from PIL import Image
+from torch.utils.data import Dataset
 from torchvision.transforms import ToPILImage, ToTensor
 
 def tensorToPIL(tensor: torch.Tensor) -> Image:
